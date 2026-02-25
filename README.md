@@ -1,6 +1,6 @@
 # Focus Notifier ⏰
 
-**A lightweight desktop productivity tool built with Python and Tkinter. Set a time, get a Windows notification, and stay on track — even when the window is closed.
+**A lightweight desktop productivity tool built with Python and Tkinter. Set a time, get a Windows notification, and stay on track — even when the window is closed.**
 
 
 "You can download the executable by going to the -> dest folder, clicking on -> main.exe, and selecting ->'Download' (Ctrl + Shift + S) from the top right corner."
