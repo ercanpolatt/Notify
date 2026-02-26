@@ -43,32 +43,68 @@ F_UI_T   = ("Segoe UI Semibold", 15)
 F_SM     = ("Segoe UI", 8)
 
 # ══════════════════════════════════════════════════
-#  SES — Saf Python ile beep üret
+#  SES — WAV üret + çal (çoklu yöntem)
 # ══════════════════════════════════════════════════
-def generate_beep_wav(path, freq=880, duration=0.25, volume=0.5, repeat=4):
+def generate_beep_wav(path, freq=880, duration=0.3, volume=0.9, repeat=6):
+    """Sinüs dalgası tabanlı alarm sesi üret."""
     sample_rate = 44100
     n = int(sample_rate * duration)
-    silence = int(sample_rate * 0.08)
+    silence = int(sample_rate * 0.07)
     with wave.open(path, 'w') as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         for _ in range(repeat):
             for i in range(n):
-                val = int(32767 * volume * math.sin(2 * math.pi * freq * i / sample_rate))
+                env = 1.0
+                if i < n * 0.1:
+                    env = i / (n * 0.1)
+                elif i > n * 0.9:
+                    env = (n - i) / (n * 0.1)
+                val = int(32767 * volume * env *
+                          math.sin(2 * math.pi * freq * i / sample_rate))
                 wf.writeframes(struct.pack('<h', val))
             for _ in range(silence):
                 wf.writeframes(struct.pack('<h', 0))
 
-_beep_path = os.path.join(tempfile.gettempdir(), "fn_alarm.wav")
-generate_beep_wav(_beep_path, freq=880, duration=0.3, volume=0.6, repeat=5)
+# Betik ile aynı klasöre kaydet (temp silinirse sorun olmasın)
+_app_dir   = os.path.dirname(os.path.abspath(__file__))
+_beep_path = os.path.join(_app_dir, "fn_alarm.wav")
+generate_beep_wav(_beep_path)
+
+
+def _play_via_powershell(path):
+    """PowerShell SoundPlayer ile senkron çal — en güvenilir yöntem."""
+    import subprocess
+    ps_cmd = (
+        f"$p = New-Object System.Media.SoundPlayer('{path}');"
+        f"$p.PlaySync();"
+    )
+    subprocess.Popen(
+        ["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+        creationflags=0x08000000   # CREATE_NO_WINDOW
+    )
+
+
+def _play_via_winsound(path):
+    import winsound
+    winsound.PlaySound(
+        path,
+        winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT
+    )
+
 
 def play_alarm():
-    try:
-        import winsound
-        winsound.PlaySound(_beep_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-    except Exception:
-        pass   # winsound Windows'a özgü; hata sessizce geç
+    """Alarm sesini ayrı thread'de çal; birincil başarısız olursa fallback."""
+    def _run():
+        try:
+            _play_via_powershell(_beep_path)
+        except Exception:
+            try:
+                _play_via_winsound(_beep_path)
+            except Exception:
+                pass
+    threading.Thread(target=_run, daemon=True).start()
 
 # ══════════════════════════════════════════════════
 #  GLOBAL DURUM
@@ -132,8 +168,19 @@ def scheduler_thread(target_h, target_m, title, message, sound):
             send_notification(title, message)
             if sound:
                 play_alarm()
-            time.sleep(61)
+            running = False
+            # UI'yi ana thread'den güncelle
+            root.after(0, _alarm_fired)
+            return
         time.sleep(1)
+
+
+def _alarm_fired():
+    """Alarm çaldıktan sonra UI'yi sıfırla."""
+    set_status0("✓ Alarm çaldı!", GREEN)
+    start_btn0.config(state="normal", bg=ACCENT)
+    stop_btn0.config(state="disabled", bg=DIM)
+    cd_lbl.config(text="ALARM ÇALDI", fg=GREEN)
 
 # ══════════════════════════════════════════════════
 #  DRUM-ROLL PICKER (kaydırılabilir saat/dakika)
@@ -530,6 +577,9 @@ def start_countdown(target_h, target_m):
             from datetime import timedelta
             target_today += timedelta(days=1)
         diff = int((target_today - now).total_seconds())
+        if diff <= 0:
+            cd_lbl.config(text="ALARM ÇALDI", fg=GREEN)
+            return
         h = diff // 3600
         m = (diff % 3600) // 60
         s = diff % 60
